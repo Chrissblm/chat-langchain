@@ -43,9 +43,12 @@ env_helper = EnvHelper()
 #from constants import AZURE_SEARCH_INDEX #WEAVIATE_DOCS_INDEX_NAME #TODO: remove this and add Azure Cognitive Search index name
 
 
+import os
+
+LANGCHAIN_API_KEY = env_helper.LANGCHAIN_API_KEY
+
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-os.environ["LANGCHAIN_API_KEY"] = "ls__f3153da19a294dbda5dc6b5da3265156"
 os.environ["LANGCHAIN_PROJECT"] = "chatagent"
 #os.environ["LANGCHAIN_API_KEY"] = getpass.getpass("LangSmith API Key:")
 

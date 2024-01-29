@@ -73,7 +73,7 @@ class EnvHelper:
         self.AZURE_CONTENT_SAFETY_KEY = os.getenv('AZURE_CONTENT_SAFETY_KEY', '')
         # Orchestration Settings
         self.ORCHESTRATION_STRATEGY = os.getenv('ORCHESTRATION_STRATEGY', 'openai_function')
-    
+        self.LANGCHAIN_API_KEY = os.getenv('LANGCHAIN_API_KEY', '')
     @staticmethod
     def check_env():
         for attr, value in EnvHelper().__dict__.items():
