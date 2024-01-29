@@ -2,13 +2,22 @@ import os
 from operator import itemgetter
 from typing import Dict, List, Optional, Sequence
 
-import weaviate
+#import weaviate
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.chat_models.anthropic import ChatAnthropic
 from langchain_community.chat_models.fireworks import ChatFireworks
 from langchain_community.embeddings.voyageai import VoyageEmbeddings
-from langchain_community.vectorstores.weaviate import Weaviate
+from langchain_community.vectorstores.weaviate import AzureSearch #Weaviate
+from langchain.retrievers import AzureCognitiveSearchRetriever
+from langchain.vectorstores.azuresearch import AzureSearch
+from azure.search.documents.indexes.models import (
+    SearchableField,
+    SearchField,
+    SearchFieldDataType,
+    SimpleField,
+)
+
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.base import BaseLanguageModel
@@ -25,7 +34,28 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langsmith import Client
 from pydantic import BaseModel
 
-from constants import WEAVIATE_DOCS_INDEX_NAME
+from .helpers.LLMHelper import LLMHelper
+from .helpers.EnvHelper import EnvHelper
+
+llm_helper = LLMHelper()
+env_helper = EnvHelper()
+
+#from constants import AZURE_SEARCH_INDEX #WEAVIATE_DOCS_INDEX_NAME #TODO: remove this and add Azure Cognitive Search index name
+
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+os.environ["LANGCHAIN_API_KEY"] = "ls__f3153da19a294dbda5dc6b5da3265156"
+os.environ["LANGCHAIN_PROJECT"] = "chatagent"
+#os.environ["LANGCHAIN_API_KEY"] = getpass.getpass("LangSmith API Key:")
+
+from langchain.globals import set_debug
+from langchain.globals import set_verbose
+
+set_debug(True)
+set_verbose(True)
+
+
 
 RESPONSE_TEMPLATE = """\
 You are an expert programmer and problem-solver, tasked with answering any question \
@@ -82,9 +112,70 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+class AzureSearchHelper():
+    def __init__(self):
+        pass
+    
+    def get_vector_store(self):
+        llm_helper = LLMHelper()
+        env_helper = EnvHelper()
+        fields = [
+            SimpleField(
+                name="id",
+                type=SearchFieldDataType.String,
+                key=True,
+                filterable=True,
+            ),
+            SearchableField(
+                name="content",
+                type=SearchFieldDataType.String,
+            ),
+            SearchField(
+                name="content_vector",
+                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                searchable=True,
+                vector_search_dimensions=len(llm_helper.get_embedding_model().embed_query("Text")),
+                vector_search_configuration="default",
+            ),
+            SearchableField(
+                name="metadata",
+                type=SearchFieldDataType.String,
+            ),
+            SearchableField(
+                name="title",
+                type=SearchFieldDataType.String,
+                facetable=True,
+                filterable=True,
+            ),
+            SearchableField(
+                name="source",
+                type=SearchFieldDataType.String,
+                filterable=True,
+            ),
+            SimpleField(
+                name="chunk",
+                type=SearchFieldDataType.Int32,
+                filterable=True,
+            ),
+            SimpleField(
+                name="offset",
+                type=SearchFieldDataType.Int32,
+                filterable=True,
+            ),
+        ]
+        
+        return AzureSearch(
+                azure_search_endpoint=env_helper.AZURE_SEARCH_SERVICE,
+                azure_search_key=env_helper.AZURE_SEARCH_KEY if env_helper.AZURE_AUTH_TYPE == "keys" else None,
+                index_name=env_helper.AZURE_SEARCH_INDEX,
+                embedding_function=llm_helper.get_embedding_model().embed_query,
+                fields=fields,
+                user_agent="langchain chatwithyourdata-sa",
+            )
 
-WEAVIATE_URL = os.environ["WEAVIATE_URL"]
-WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
+
+# WEAVIATE_URL = os.environ["WEAVIATE_URL"]
+# WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
 
 
 class ChatRequest(BaseModel):
@@ -92,26 +183,33 @@ class ChatRequest(BaseModel):
     chat_history: Optional[List[Dict[str, str]]]
 
 
-def get_embeddings_model() -> Embeddings:
-    if os.environ.get("VOYAGE_API_KEY") and os.environ.get("VOYAGE_AI_MODEL"):
-        return VoyageEmbeddings(model=os.environ["VOYAGE_AI_MODEL"])
-    return OpenAIEmbeddings(chunk_size=200)
+# def get_embeddings_model() -> Embeddings:
+#     if os.environ.get("VOYAGE_API_KEY") and os.environ.get("VOYAGE_AI_MODEL"):
+#         return VoyageEmbeddings(model=os.environ["VOYAGE_AI_MODEL"])
+#     return OpenAIEmbeddings(chunk_size=200)
 
 
 def get_retriever() -> BaseRetriever:
-    weaviate_client = weaviate.Client(
-        url=WEAVIATE_URL,
-        auth_client_secret=weaviate.AuthApiKey(api_key=WEAVIATE_API_KEY),
-    )
-    weaviate_client = Weaviate(
-        client=weaviate_client,
-        index_name=WEAVIATE_DOCS_INDEX_NAME,
-        text_key="text",
-        embedding=get_embeddings_model(),
-        by_text=False,
-        attributes=["source", "title"],
-    )
-    return weaviate_client.as_retriever(search_kwargs=dict(k=6))
+    os.environ.AZURE_COGNITIVE_SEARCH_SERVICE_NAME = env_helper.AZURE_SEARCH_SERVICE
+    os.environ.AZURE_COGNITIVE_SEARCH_INDEX_NAME = env_helper.AZURE_SEARCH_INDEX
+    os.environ.AZURE_COGNITIVE_SEARCH_API_KEY = env_helper.AZURE_SEARCH_KEY
+    retriever = AzureCognitiveSearchRetriever(content_key="text", top_k=6)
+    return retriever
+
+# def get_retriever() -> BaseRetriever:
+#     weaviate_client = weaviate.Client(
+#         url=WEAVIATE_URL,
+#         auth_client_secret=weaviate.AuthApiKey(api_key=WEAVIATE_API_KEY),
+#     )
+#     weaviate_client = Weaviate(
+#         client=weaviate_client,
+#         index_name=WEAVIATE_DOCS_INDEX_NAME,
+#         text_key="text",
+#         embedding=get_embedding_model(),
+#         by_text=False,
+#         attributes=["source", "title"],
+#     )
+#     return weaviate_client.as_retriever(search_kwargs=dict(k=6))
 
 
 def create_retriever_chain(
@@ -198,11 +296,7 @@ def create_chain(
         | response_synthesizer
     )
 
-
-llm = ChatOpenAI(
-    model="gpt-3.5-turbo-16k",
-    streaming=True,
-    temperature=0,
+llm = llm_helper.get_streaming_llm(
 ).configurable_alternatives(
     # This gives this field an id
     # When configuring the end runnable, we can then use this id to configure this field
